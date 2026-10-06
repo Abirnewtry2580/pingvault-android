@@ -100,7 +100,7 @@ class MainActivity : Activity() {
 
         search = EditText(this).apply {
             hint = "Search notifications"
-            singleLine = true
+            setSingleLine(true)
             setPadding(dp(12), 0, dp(12), 0)
             background = rounded(Color.WHITE, Color.rgb(220, 226, 234))
             addTextChangedListener(object : TextWatcher {
