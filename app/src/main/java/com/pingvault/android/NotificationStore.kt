@@ -43,6 +43,10 @@ class NotificationStore private constructor(context: Context) :
 
     @Synchronized
     fun put(item: ArchivedNotification) {
+        val previouslySaved = readableDatabase.rawQuery(
+            "SELECT saved FROM notifications WHERE notification_key = ?",
+            arrayOf(item.key)
+        ).use { it.moveToFirst() && it.getInt(0) != 0 }
         val values = ContentValues().apply {
             put("notification_key", item.key)
             put("package_name", item.packageName)
@@ -52,7 +56,7 @@ class NotificationStore private constructor(context: Context) :
             put("posted_at", item.postedAt)
             put("media_path", item.mediaPath)
             put("media_mime", item.mediaMime)
-            put("saved", if (item.saved) 1 else 0)
+            put("saved", if (item.saved || previouslySaved) 1 else 0)
         }
         writableDatabase.insertWithOnConflict("notifications", null, values, SQLiteDatabase.CONFLICT_REPLACE)
     }
