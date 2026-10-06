@@ -28,6 +28,8 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.TextView
+import android.widget.Toast
+import java.io.File
 import java.text.DateFormat
 import java.util.Date
 
@@ -41,6 +43,7 @@ class MainActivity : Activity() {
     private var selectedPackage: String? = null
     private var appChoices: List<Pair<String, String>> = emptyList()
     private var updatingAppSpinner = false
+    private var pendingExportPath: String? = null
 
     private val updateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) = refreshList()
@@ -316,10 +319,47 @@ class MainActivity : Activity() {
                 setPadding(0, dp(10), 0, 0)
             })
         }
+        item.mediaPath?.let { path ->
+            content.addView(Button(this).apply {
+                text = "Export attachment"
+                setOnClickListener { exportAttachment(path, item.mediaMime) }
+            }, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(8) })
+        }
         AlertDialog.Builder(this).setView(content)
             .setPositiveButton(if (item.saved) "Unsave" else "Save") { _, _ -> store.toggleSaved(item.key); refreshList() }
             .setNeutralButton("Delete") { _, _ -> store.delete(item.key); refreshList() }
             .setNegativeButton("Close", null).show()
+    }
+
+    private fun exportAttachment(path: String, mimeType: String?) {
+        pendingExportPath = path
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = mimeType ?: "application/octet-stream"
+            putExtra(Intent.EXTRA_TITLE, File(path).name)
+        }
+        runCatching { startActivityForResult(intent, REQUEST_EXPORT) }
+            .onFailure { Toast.makeText(this, "Could not open file picker.", Toast.LENGTH_SHORT).show() }
+    }
+
+    @Deprecated("Handled for Android's document picker result")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQUEST_EXPORT || resultCode != RESULT_OK) return
+        val sourcePath = pendingExportPath ?: return
+        val destination = data?.data ?: return
+        val result = runCatching {
+            val output = contentResolver.openOutputStream(destination) ?: error("Destination unavailable")
+            File(sourcePath).inputStream().use { input ->
+                output.use { sink -> input.copyTo(sink) }
+            }
+        }
+        Toast.makeText(
+            this,
+            if (result.isSuccess) "Attachment exported." else "Could not export this attachment.",
+            Toast.LENGTH_LONG
+        ).show()
+        pendingExportPath = null
     }
 
     private fun rounded(fill: Int, stroke: Int) = GradientDrawable().apply {
@@ -327,4 +367,8 @@ class MainActivity : Activity() {
     }
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
     private fun matchWrap() = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) }
+
+    companion object {
+        private const val REQUEST_EXPORT = 5201
+    }
 }
