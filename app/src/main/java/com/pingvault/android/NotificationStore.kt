@@ -62,10 +62,14 @@ class NotificationStore private constructor(context: Context) :
     }
 
     @Synchronized
-    fun list(search: String = "", savedOnly: Boolean = false): List<ArchivedNotification> {
+    fun list(search: String = "", savedOnly: Boolean = false, packageFilter: String? = null): List<ArchivedNotification> {
         val where = mutableListOf<String>()
         val args = mutableListOf<String>()
         if (savedOnly) where += "saved = 1"
+        if (!packageFilter.isNullOrBlank()) {
+            where += "package_name = ?"
+            args += packageFilter
+        }
         if (search.isNotBlank()) {
             where += "(title LIKE ? OR body LIKE ? OR app_name LIKE ?)"
             val q = "%$search%"
@@ -85,6 +89,27 @@ class NotificationStore private constructor(context: Context) :
             }
         }
         return rows
+    }
+
+    fun appFilters(): List<Pair<String, String>> {
+        val apps = mutableListOf<Pair<String, String>>()
+        readableDatabase.rawQuery(
+            "SELECT package_name, app_name FROM notifications GROUP BY package_name, app_name ORDER BY app_name COLLATE NOCASE",
+            null
+        ).use { c ->
+            while (c.moveToNext()) apps += c.getString(1) to c.getString(0)
+        }
+        return apps
+    }
+
+    @Synchronized
+    fun clearAll() {
+        val paths = mutableListOf<String>()
+        readableDatabase.rawQuery("SELECT media_path FROM notifications WHERE media_path IS NOT NULL", null).use { c ->
+            while (c.moveToNext()) paths += c.getString(0)
+        }
+        writableDatabase.delete("notifications", null, null)
+        paths.distinct().forEach { runCatching { File(it).delete() } }
     }
 
     @Synchronized
