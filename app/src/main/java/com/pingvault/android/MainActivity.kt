@@ -19,11 +19,14 @@ import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.Spinner
 import android.widget.TextView
 import java.text.DateFormat
 import java.util.Date
@@ -32,8 +35,12 @@ class MainActivity : Activity() {
     private lateinit var store: NotificationStore
     private lateinit var accessButton: Button
     private lateinit var search: EditText
+    private lateinit var appSpinner: Spinner
     private lateinit var list: LinearLayout
     private var savedOnly = false
+    private var selectedPackage: String? = null
+    private var appChoices: List<Pair<String, String>> = emptyList()
+    private var updatingAppSpinner = false
 
     private val updateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) = refreshList()
@@ -98,6 +105,36 @@ class MainActivity : Activity() {
         }, LinearLayout.LayoutParams(0, dp(48), 1f))
         root.addView(controls)
 
+        appSpinner = Spinner(this)
+        appSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                if (updatingAppSpinner) return
+                selectedPackage = if (position == 0) null else appChoices.getOrNull(position - 1)?.second
+                refreshList()
+            }
+        }
+        root.addView(appSpinner, LinearLayout.LayoutParams(-1, dp(48)).apply {
+            bottomMargin = dp(6)
+        })
+
+        root.addView(Button(this).apply {
+            text = "Clear all"
+            setOnClickListener {
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Clear the whole archive?")
+                    .setMessage("All archived notifications and copied attachments will be removed.")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Clear all") { _, _ ->
+                        store.clearAll()
+                        selectedPackage = null
+                        savedOnly = false
+                        refreshList()
+                    }
+                    .show()
+            }
+        }, LinearLayout.LayoutParams(-1, dp(44)))
+
         search = EditText(this).apply {
             hint = "Search notifications"
             setSingleLine(true)
@@ -137,7 +174,8 @@ class MainActivity : Activity() {
     private fun refreshList() {
         if (!::list.isInitialized) return
         list.removeAllViews()
-        val rows = store.list(search.text?.toString().orEmpty(), savedOnly)
+        refreshAppSpinner()
+        val rows = store.list(search.text?.toString().orEmpty(), savedOnly, selectedPackage)
         if (rows.isEmpty()) {
             list.addView(TextView(this).apply {
                 text = if (isListenerEnabled()) "No notifications saved yet." else "Enable notification access to start your archive."
@@ -149,6 +187,24 @@ class MainActivity : Activity() {
             return
         }
         rows.forEach { item -> list.addView(notificationCard(item)) }
+    }
+
+    private fun refreshAppSpinner() {
+        if (!::appSpinner.isInitialized) return
+        val current = store.appFilters()
+        if (current == appChoices && appSpinner.adapter != null) return
+        appChoices = current
+        if (selectedPackage != null && appChoices.none { it.second == selectedPackage }) {
+            selectedPackage = null
+        }
+        val labels = listOf("All apps") + appChoices.map { it.first }
+        updatingAppSpinner = true
+        appSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, labels).apply {
+            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        }
+        val selectedIndex = selectedPackage?.let { pkg -> appChoices.indexOfFirst { it.second == pkg } + 1 } ?: 0
+        appSpinner.setSelection(selectedIndex.coerceAtLeast(0), false)
+        updatingAppSpinner = false
     }
 
     private fun notificationCard(item: ArchivedNotification): View {
