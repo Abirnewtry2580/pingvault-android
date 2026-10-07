@@ -28,6 +28,17 @@ jobs:
           sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug
+      - name: Install and launch on Android 12 emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 31
+          arch: x86_64
+          target: default
+          script: |
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb shell am start -n com.pingvault.android/.MainActivity
+            sleep 5
+            adb shell am force-stop com.pingvault.android
       - uses: actions/upload-artifact@v4
         if: success()
         with:
